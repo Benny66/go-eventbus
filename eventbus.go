@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // Event 事件接口
@@ -28,7 +29,8 @@ type EventBus struct {
 	mutex       sync.RWMutex
 	eventChans  map[string]chan eventTask
 	maxRetries  int
-	channelSize int // 新增字段：channel容量
+	retryDelay  time.Duration // 新增：重试延迟时间
+	channelSize int           // 新增字段：channel容量
 	// 用于关闭和同步
 	done chan struct{}  // 用于关闭事件总线
 	wg   sync.WaitGroup // 等待所有 goroutine 结束
@@ -62,6 +64,15 @@ func WithLogger(logger Logger) EventBusOption {
 	}
 }
 
+// WithRetryDelay 设置重试延迟时间
+func WithRetryDelay(delay time.Duration) EventBusOption {
+	return func(eb *EventBus) {
+		if delay > 0 {
+			eb.retryDelay = delay
+		}
+	}
+}
+
 // NewEventBus 创建一个新的事件总线
 // 参数 options: 可变参数，用于自定义事件总线的配置选项
 // 返回值: 初始化完成的EventBus实例
@@ -79,6 +90,8 @@ func NewEventBus(options ...EventBusOption) *EventBus {
 		// maxRetries: 事件处理失败时的最大重试次数
 		// 默认为3次，可通过WithMaxRetries选项修改
 		maxRetries: 3,
+
+		retryDelay: 100 * time.Millisecond, // 默认重试延迟100毫秒
 
 		// channelSize: 事件队列的缓冲区大小
 		// 默认为1000，可通过WithChannelSize选项修改
@@ -168,6 +181,8 @@ func (eb *EventBus) processEvents(topic string) {
 				eb.logger.Errorf("event topic %s handle failed: %s, retrying %d times...",
 					task.event.Topic(), err.Error(), i+1)
 				if i < eb.maxRetries-1 {
+					// 使用配置的重试延迟
+					time.Sleep(eb.retryDelay)
 					continue
 				}
 			}
