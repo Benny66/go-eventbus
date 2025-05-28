@@ -63,17 +63,39 @@ func WithLogger(logger Logger) EventBusOption {
 }
 
 // NewEventBus 创建一个新的事件总线
+// 参数 options: 可变参数，用于自定义事件总线的配置选项
+// 返回值: 初始化完成的EventBus实例
 func NewEventBus(options ...EventBusOption) *EventBus {
+	// 初始化EventBus实例，设置默认值
 	eb := &EventBus{
-		handlers:    make(map[string][]Handler),
+		// handlers: 存储事件处理器的映射，key为事件主题，value为该主题的处理器列表
+		// 允许一个主题有多个处理器，实现多订阅者模式
+		handlers:    make(map[string][]Handler), 
+		
+		// eventChans: 存储事件通道的映射，key为事件主题，value为该主题的事件队列
+		// 用于异步处理事件，实现事件的缓冲和并发处理
 		eventChans:  make(map[string]chan eventTask),
+		
+		// maxRetries: 事件处理失败时的最大重试次数
+		// 默认为3次，可通过WithMaxRetries选项修改
 		maxRetries:  3,
-		channelSize: 1000, // 默认channel容量为1000
+		
+		// channelSize: 事件队列的缓冲区大小
+		// 默认为1000，可通过WithChannelSize选项修改
+		// 较大的缓冲区可以处理突发的大量事件，但会占用更多内存
+		channelSize: 1000, 
+		
+		// done: 用于通知所有goroutine退出的信号通道
+		// 在Close方法中关闭，用于实现优雅关闭
 		done:        make(chan struct{}),
+		
+		// logger: 日志记录器，默认使用内置的defaultLogger
+		// 可通过WithLogger选项自定义
 		logger:      &defaultLogger{},
 	}
 
-	// 应用选项
+	// 应用自定义选项
+	// 遍历所有传入的选项函数，并依次应用到EventBus实例
 	for _, option := range options {
 		option(eb)
 	}
