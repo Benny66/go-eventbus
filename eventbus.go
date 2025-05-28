@@ -70,28 +70,28 @@ func NewEventBus(options ...EventBusOption) *EventBus {
 	eb := &EventBus{
 		// handlers: 存储事件处理器的映射，key为事件主题，value为该主题的处理器列表
 		// 允许一个主题有多个处理器，实现多订阅者模式
-		handlers:    make(map[string][]Handler), 
-		
+		handlers: make(map[string][]Handler),
+
 		// eventChans: 存储事件通道的映射，key为事件主题，value为该主题的事件队列
 		// 用于异步处理事件，实现事件的缓冲和并发处理
-		eventChans:  make(map[string]chan eventTask),
-		
+		eventChans: make(map[string]chan eventTask),
+
 		// maxRetries: 事件处理失败时的最大重试次数
 		// 默认为3次，可通过WithMaxRetries选项修改
-		maxRetries:  3,
-		
+		maxRetries: 3,
+
 		// channelSize: 事件队列的缓冲区大小
 		// 默认为1000，可通过WithChannelSize选项修改
 		// 较大的缓冲区可以处理突发的大量事件，但会占用更多内存
-		channelSize: 1000, 
-		
+		channelSize: 1000,
+
 		// done: 用于通知所有goroutine退出的信号通道
 		// 在Close方法中关闭，用于实现优雅关闭
-		done:        make(chan struct{}),
-		
+		done: make(chan struct{}),
+
 		// logger: 日志记录器，默认使用内置的defaultLogger
 		// 可通过WithLogger选项自定义
-		logger:      &defaultLogger{},
+		logger: &defaultLogger{},
 	}
 
 	// 应用自定义选项
@@ -160,7 +160,8 @@ func (eb *EventBus) processEvents(topic string) {
 			var err error
 			for i := 0; i < eb.maxRetries; i++ {
 				ctx := context.Background() // 新建一个 context, 超时时间下层可以自己设置
-				err = task.handler.Handle(ctx, task.event)
+				// 增加异常处理和容错机制
+				err = eb.safeHandle(ctx, task.event, task.handler)
 				if err == nil {
 					break
 				}
@@ -174,6 +175,17 @@ func (eb *EventBus) processEvents(topic string) {
 			return
 		}
 	}
+}
+
+// safeHandle 安全处理事件
+func (eb *EventBus) safeHandle(ctx context.Context, event Event, handler Handler) error {
+	defer func() {
+		if r := recover(); r != nil {
+			eb.logger.Errorf("event topic %s handle panic: %v", event.Topic(), r)
+		}
+	}()
+
+	return handler.Handle(ctx, event)
 }
 
 // Close 关闭事件总线
